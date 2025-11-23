@@ -1,0 +1,8 @@
+# 큰 로우데이터 / 백업은 git에 올리지 않기
+2024 전국 공공체육시설현황.xlsx
+data_raw/
+bigdata/
+
+# 빌드/의존성
+node_modules/
+dist/
