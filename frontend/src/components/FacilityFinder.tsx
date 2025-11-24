@@ -7,6 +7,7 @@ import { Building2, Home, MapPin } from "lucide-react";
 
 // ----------------- 상수 -----------------
 const regions = [
+  "전국",   // ✅ 새로 추가
   "서울",
   "부산",
   "대구",
@@ -168,7 +169,7 @@ const makeInfoContent = (facility: Facility) => {
 // ================== 메인 컴포넌트 ==================
 
 export const FacilityFinder = () => {
-  const [selectedRegion, setSelectedRegion] = useState<Region>("부산");
+  const [selectedRegion, setSelectedRegion] = useState<Region>("전국");
   const [selectedCategory, setSelectedCategory] = useState<FacilityCategory>("all");
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -185,17 +186,20 @@ export const FacilityFinder = () => {
     queryKey: ["facilities", selectedRegion],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (selectedRegion) params.set("sido", selectedRegion);
-      params.set("page", "1");
-      params.set("pageSize", "1000"); // 충분히 크게
+      if (selectedRegion && selectedRegion !== "전국") {
+      params.set("sido", selectedRegion);
+    }
 
-      const res = await fetch(`${apiBaseUrl}/api/facilities?${params.toString()}`);
-      if (!res.ok) {
-        throw new Error("시설 목록을 불러오는데 실패했습니다.");
-      }
-      return res.json();
-    },
-  });
+    params.set("page", "1");
+    params.set("pageSize", "1000"); // 충분히 크게
+
+    const res = await fetch(`${apiBaseUrl}/api/facilities?${params.toString()}`);
+    if (!res.ok) {
+      throw new Error("시설 목록을 불러오는데 실패했습니다.");
+    }
+    return res.json();
+  },
+});
 
   const facilities = data?.items ?? [];
 

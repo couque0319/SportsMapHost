@@ -7,6 +7,9 @@ interface ContactDialogProps {
   onClose: () => void;
 }
 
+const GOOGLE_FORM_URL =
+  "https://forms.gle/nKjroZhm7CR3iCfK8";
+
 const ContactDialog: FC<ContactDialogProps> = ({ open, onClose }) => {
   if (!open) return null;
 
@@ -28,12 +31,10 @@ const ContactDialog: FC<ContactDialogProps> = ({ open, onClose }) => {
           <Button variant="outline" onClick={handleMailClick}>
             이메일로 문의하기
           </Button>
+          
+          {/* ✅ 구글 폼으로 이동 */}
           <Button variant="outline" asChild>
-            <a
-              href="https://forms.gle/your-google-form"
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a href={GOOGLE_FORM_URL} target="_blank" rel="noreferrer">
               구글 폼으로 문의 남기기
             </a>
           </Button>
