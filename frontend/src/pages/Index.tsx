@@ -10,7 +10,7 @@ const Index = () => {
     <div className="min-h-screen">
       <Header />
       <main className="pt-16">
-        <Hero />
+        <Hero onClickFacilities={() => {}} onClickContact={() => {}} />
         <FacilityFinder />
         <Competitions />
         <News />

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, X, MapPin } from "lucide-react";
 
 type HeaderProps = {
-  onContactClick: () => void;
+  onContactClick?: () => void;
 };
 
 const Header: FC<HeaderProps> = ({ onContactClick }) => {

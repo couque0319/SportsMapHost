@@ -1,78 +1,187 @@
+// frontend/src/components/News.tsx
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Clock, ChevronRight } from "lucide-react";
 
-const news = [
-  {
-    title: "2025년 생활체육 지원 사업 공고",
-    excerpt: "전국 각 지자체별 생활체육 지원 사업 신청이 시작되었습니다. 12월 31일까지 신청 가능합니다.",
-    date: "2025.11.22",
-    category: "공지사항",
-  },
-  {
-    title: "겨울철 체육시설 안전 이용 안내",
-    excerpt: "겨울철 실내 체육시설 이용 시 안전 수칙을 안내드립니다. 모두의 안전한 운동을 위해 협조 부탁드립니다.",
-    date: "2025.11.20",
-    category: "안내",
-  },
-  {
-    title: "전국 생활체육대회 성황리 종료",
-    excerpt: "지난 주말 개최된 전국 생활체육대회가 5만여 명의 참가자와 함께 성황리에 마무리되었습니다.",
-    date: "2025.11.18",
-    category: "뉴스",
-  },
-  {
-    title: "신규 체육시설 개관 안내",
-    excerpt: "경기도 및 충청지역에 새로운 생활체육시설이 개관하였습니다. 다양한 프로그램을 이용하실 수 있습니다.",
-    date: "2025.11.15",
-    category: "시설",
-  },
-];
+export type ExternalEvent = {
+  id: string;
+  title: string;
+  dateText: string;
+  venue?: string;
+  category?: string;
+  excerpt?: string;
+  link?: string;
+  startDate?: string;
+  endDate?: string;
+  dDayLabel?: string;
+};
 
 const News = () => {
+  const [events, setEvents] = useState<ExternalEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [source, setSource] = useState<"live" | "cache" | null>(null);
+  const navigate = useNavigate();
+
+  const handleMoreClick = () => {
+    navigate("/news");
+  };
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // 🔥 크롤링 기반 events API 호출
+        const res = await fetch("/api/events");
+        if (!res.ok) {
+          throw new Error(`이벤트 API 호출 실패: ${res.status}`);
+        }
+
+        const json = await res.json();
+        setSource((json?.source as "live" | "cache" | undefined) ?? null);
+
+        if (!Array.isArray(json?.data)) {
+          throw new Error("이벤트 데이터 형식이 올바르지 않습니다.");
+        }
+
+        const items = json.data as ExternalEvent[];
+        setEvents(items);
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "소식을 불러오는 중 오류가 발생했습니다.";
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
+  }, []);
+
   return (
-    <section id="news" className="py-16 bg-background">
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between mb-8">
+    <section className="bg-slate-50 py-12 sm:py-16">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
           <div>
-            <h2 className="text-4xl font-bold text-foreground mb-2">소식 및 공지</h2>
-            <p className="text-muted-foreground">생활체육 관련 최신 소식을 확인하세요</p>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+              소식 및 공지
+            </h2>
+            <p className="text-sm sm:text-base text-slate-600 mt-1">
+              서울시·지자체 생활체육 프로그램 최신 소식입니다.
+              {source && (
+                <span className="ml-2 text-xs text-slate-500">
+                  ({source === "live" ? "실시간 업데이트" : "캐시"})
+                </span>
+              )}
+            </p>
           </div>
-          <Button variant="ghost" className="gap-2 hidden sm:flex hover:text-primary">
-            더보기
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+
+          <div className="hidden sm:block">
+            <Button
+              variant="ghost"
+              className="gap-2 hover:text-primary"
+              onClick={handleMoreClick}
+            >
+              더보기
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          {news.map((item, index) => (
-            <Card 
-              key={index} 
-              className="p-6 hover:shadow-lg transition-all duration-300 cursor-pointer group border-l-4 border-l-primary hover:border-l-secondary"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <span className="px-3 py-1 bg-primary/10 text-primary text-xs font-semibold rounded-full">
-                  {item.category}
-                </span>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="w-3 h-3" />
-                  <span>{item.date}</span>
+        {/* 로딩 */}
+        {loading && (
+          <div className="text-center py-10 text-slate-500">
+            소식을 불러오는 중입니다...
+          </div>
+        )}
+
+        {/* 에러 */}
+        {error && !loading && (
+          <div className="text-center py-10 text-red-500 text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* 빈 데이터 */}
+        {!loading && !error && events.length === 0 && (
+          <div className="text-center py-10 text-slate-500 text-sm">
+            현재 표시할 소식이 없습니다.
+          </div>
+        )}
+
+        {/* 데이터 카드 3개만 미리보기 */}
+        {!loading && !error && events.length > 0 && (
+          <div className="grid gap-4 sm:grid-cols-3">
+            {events.slice(0, 3).map((item) => (
+              <Card
+                key={item.id}
+                className="p-4 flex flex-col justify-between hover:shadow-md transition-shadow"
+              >
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="inline-flex items-center px-2 py-1 rounded-full bg-blue-50 text-xs font-medium text-blue-700">
+                      {item.category || "생활체육"}
+                    </div>
+                    {item.dDayLabel && (
+                      <div className="inline-flex items-center px-2 py-1 rounded-full bg-emerald-50 text-xs font-semibold text-emerald-700">
+                        {item.dDayLabel}
+                      </div>
+                    )}
+                  </div>
+
+                  <h3 className="font-semibold text-base sm:text-lg mb-1 line-clamp-2">
+                    {item.title}
+                  </h3>
+
+                  {item.venue && (
+                    <p className="text-xs text-slate-500 mb-1">
+                      장소: {item.venue}
+                    </p>
+                  )}
+
+                  {item.excerpt && (
+                    <p className="text-xs sm:text-sm text-slate-600 mb-2 line-clamp-3">
+                      {item.excerpt}
+                    </p>
+                  )}
                 </div>
-              </div>
-              <h3 className="font-bold text-lg mb-2 text-foreground group-hover:text-primary transition-colors">
-                {item.title}
-              </h3>
-              <p className="text-sm text-muted-foreground line-clamp-2">
-                {item.excerpt}
-              </p>
-            </Card>
-          ))}
-        </div>
+
+                <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {item.dateText || "일정 미정"}
+                  </span>
+                  {item.link && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto px-2 py-0 text-xs"
+                      asChild
+                    >
+                      <a href={item.link} target="_blank" rel="noreferrer">
+                        자세히 보기
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
 
         <div className="mt-8 text-center sm:hidden">
-          <Button variant="ghost" className="gap-2 hover:text-primary">
-            더보기
-            <ChevronRight className="w-4 h-4" />
+          <Button
+            variant="ghost"
+            className="gap-2 hover:text-primary"
+            onClick={handleMoreClick}
+          >
+            더보기 <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
       </div>
