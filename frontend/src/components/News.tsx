@@ -41,6 +41,10 @@ type RawEvent = {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+// ✅ Render 백엔드 기본 URL (Vite env 사용)
+const API_BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, "") ?? "";
+
 function parseDateString(input?: string): Date | null {
   if (!input) return null;
   const normalized = input.replace(/\./g, "-").trim();
@@ -136,7 +140,12 @@ const News = () => {
         setLoading(true);
         setError(null);
 
-        const res = await fetch("/api/events?page=1&size=12");
+        // ✅ Render 백엔드 URL 사용 (로컬에서는 proxy 쓸 수 있도록 fallback도 유지)
+        const endpoint = API_BASE_URL
+          ? `${API_BASE_URL}/api/events?page=1&size=12`
+          : "/api/events?page=1&size=12";
+
+        const res = await fetch(endpoint);
         if (!res.ok) {
           throw new Error(`이벤트 API 호출 실패: ${res.status}`);
         }
@@ -152,69 +161,73 @@ const News = () => {
           items = raw.items as RawEvent[];
         }
 
-        const mapped: ExternalEvent[] = items.map((ev: RawEvent, idx: number) => {
-          const id =
-            (typeof ev.id === "string" && ev.id) ??
-            (typeof ev.seq === "string" && ev.seq) ??
-            String(idx);
+        const mapped: ExternalEvent[] = items.map(
+          (ev: RawEvent, idx: number) => {
+            const id =
+              (typeof ev.id === "string" && ev.id) ??
+              (typeof ev.seq === "string" && ev.seq) ??
+              String(idx);
 
-          const title =
-            (typeof ev.title === "string" && ev.title) ??
-            (typeof ev.eventNm === "string" && ev.eventNm) ??
-            (typeof ev.eventName === "string" && ev.eventName) ??
-            "제목 미정";
+            const title =
+              (typeof ev.title === "string" && ev.title) ??
+              (typeof ev.eventNm === "string" && ev.eventNm) ??
+              (typeof ev.eventName === "string" && ev.eventName) ??
+              "제목 미정";
 
-          const rawStart =
-            typeof ev.startDate === "string" ? ev.startDate : undefined;
-          const rawEnd =
-            typeof ev.endDate === "string" ? ev.endDate : undefined;
+            const rawStart =
+              typeof ev.startDate === "string" ? ev.startDate : undefined;
+            const rawEnd =
+              typeof ev.endDate === "string" ? ev.endDate : undefined;
 
-          let dateText = formatDisplayPeriod(
-            rawStart,
-            rawEnd,
-            typeof ev.eventPeriod === "string" ? ev.eventPeriod : undefined,
-            typeof ev.date === "string" ? ev.date : undefined,
-          );
+            let dateText = formatDisplayPeriod(
+              rawStart,
+              rawEnd,
+              typeof ev.eventPeriod === "string"
+                ? ev.eventPeriod
+                : undefined,
+              typeof ev.date === "string" ? ev.date : undefined,
+            );
 
-          if (/^-?\d{5,}$/.test(dateText)) {
-            dateText = "일정 미정";
-          }
+            if (/^-?\d{5,}$/.test(dateText)) {
+              dateText = "일정 미정";
+            }
 
-          const venue =
-            (typeof ev.venue === "string" && ev.venue) ??
-            (typeof ev.place === "string" && ev.place) ??
-            undefined;
+            const venue =
+              (typeof ev.venue === "string" && ev.venue) ??
+              (typeof ev.place === "string" && ev.place) ??
+              undefined;
 
-          const category =
-            (typeof ev.category === "string" && ev.category) ??
-            (typeof ev.sport === "string" && ev.sport) ??
-            "체육행사";
+            const category =
+              (typeof ev.category === "string" && ev.category) ??
+              (typeof ev.sport === "string" && ev.sport) ??
+              "체육행사";
 
-          const excerpt =
-            (typeof ev.summary === "string" && ev.summary) ??
-            (typeof ev.contents === "string" && ev.contents) ??
-            "";
+            const excerpt =
+              (typeof ev.summary === "string" && ev.summary) ??
+              (typeof ev.contents === "string" && ev.contents) ??
+              "";
 
-          const link =
-            (typeof ev.link === "string" && ev.link) ??
-            (typeof ev.url === "string" && ev.url) ??
-            undefined;
+            const link =
+              (typeof ev.link === "string" && ev.link) ??
+              (typeof ev.url === "string" && ev.url) ??
+              undefined;
 
-          const dDayLabel = calcDDayLabel(rawStart, rawEnd);
+            const dDayLabel = calcDDayLabel(rawStart, rawEnd);
 
-          return {
-            id,
-            title,
-            dateText,
-            venue,
-            category,
-            excerpt,
-            link,
-            startDate: rawStart,
-            endDate: rawEnd,
-            dDayLabel,
-          };
-        });
+            return {
+              id,
+              title,
+              dateText,
+              venue,
+              category,
+              excerpt,
+              link,
+              startDate: rawStart,
+              endDate: rawEnd,
+              dDayLabel,
+            };
+          },
+        );
 
         setEvents(mapped);
       } catch (err: unknown) {
