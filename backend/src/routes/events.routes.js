@@ -1,78 +1,168 @@
 // backend/src/routes/events.routes.js
-import express from "express";
+import { Router } from "express";
 import axios from "axios";
-import * as cheerio from "cheerio";
+import { parseStringPromise } from "xml2js";
 
-const router = express.Router();
+const router = Router();
 
-// 서울시 생활체육포털 "우리동네 프로그램" (자치구 프로그램 목록)
-const SEOUL_LOCAL_PROGRAM_URL =
-  "https://sports.seoul.go.kr/main/board/8/board_list.do";
+// .env 에 넣어둔 서울시 공연행사 API 키
+// 예) SEOUL_SPORT_EVENT_API_KEY=발급키
+const SEOUL_API_KEY = process.env.SEOUL_SPORT_EVENT_API_KEY;
 
-async function fetchSeoulLocalPrograms(limit = 30) {
-  const res = await axios.get(SEOUL_LOCAL_PROGRAM_URL, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    },
-  });
+// 서비스명은 문서에서 본 그대로
+const SERVICE_NAME = "stadiumScheduleInfo";
 
-  const $ = cheerio.load(res.data);
-  const events = [];
+// 캐시 (1일 유지)
+let cachedEvents = [];
+let lastFetchedAt = 0;
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-  // 자치구 프로그램 테이블의 각 행을 순회 (번호 / 자치구 / 강습명 / 프로그램 내용)
-  $("table tbody tr").each((idx, el) => {
-    if (events.length >= limit) return;
-
-    const tds = $(el).find("td");
-    if (tds.length < 4) return;
-
-    const no = $(tds[0]).text().trim();
-    const gu = $(tds[1]).text().trim();
-    const lessonName = $(tds[2]).text().trim(); // 강습명
-    const programText = $(tds[3]).text().trim(); // 프로그램 내용 (유아체육, 헬스 등)
-    const href = $(tds[3]).find("a").attr("href") || "";
-
-    const link = href
-      ? new URL(href, SEOUL_LOCAL_PROGRAM_URL).toString()
-      : undefined;
-
-    const title = `[${gu}] ${lessonName}`;
-    const venue = `${gu} 생활체육 프로그램`;
-
-    events.push({
-      id: no || `${gu}-${idx}`,
-      title,
-      dateText: "상시 운영 (상세 페이지 참고)",
-      venue,
-      category: "생활체육",
-      excerpt: programText,
-      link,
-      startDate: undefined,
-      endDate: undefined,
-      dDayLabel: undefined,
-    });
-  });
-
-  console.log("[/api/events] 서울시 크롤링 결과 개수:", events.length);
-  return events;
+// YYYYMMDD → YYYY-MM-DD 로 변환
+function normalizeYyyyMmDd(input) {
+  if (!input) return undefined;
+  const s = String(input).trim();
+  const m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (!m) return undefined;
+  return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
+// stadiumScheduleInfo 한 row → 프론트 RawEvent 형태로 매핑
+function mapRowToRawEvent(row) {
+  const get = (k) => (Array.isArray(row[k]) ? row[k][0] : row[k]);
+
+  const schSeq = get("SCH_SEQ");
+  const title = get("TITLE");
+  const sdateRaw = get("SDATE");
+  const edateRaw = get("EDATE");
+  const useTime = get("USE_TIME");
+  const useAge = get("USE_AGE");
+  const useTarget = get("USE_TARGET");
+  const usePay = get("USE_PAY");
+  const linkUrl = get("LINK_URL");
+  const regDate = get("REG_DATE");
+  const updDate = get("UPD_DATE");
+  const codeTitleA = get("CODE_TITLE_A");
+  const codeTitleB = get("CODE_TITLE_B");
+
+  const startDate = normalizeYyyyMmDd(sdateRaw);
+  const endDate = normalizeYyyyMmDd(edateRaw);
+
+  let periodText = "";
+  if (startDate && endDate) {
+    periodText = `${startDate} ~ ${endDate}`;
+  } else if (startDate) {
+    periodText = startDate;
+  } else if (endDate) {
+    periodText = endDate;
+  } else if (regDate) {
+    const nd = normalizeYyyyMmDd(regDate) ?? regDate;
+    periodText = nd;
+  }
+
+  // ✅ 여기만 수정: 타입 지정 제거
+  const extraParts = [];
+  if (useTime) extraParts.push(`시간: ${useTime}`);
+  if (useAge) extraParts.push(`연령: ${useAge}`);
+  if (useTarget) extraParts.push(`대상: ${useTarget}`);
+  if (usePay) extraParts.push(`이용료: ${usePay}`);
+  const summary = extraParts.join(" / ");
+
+  return {
+    id: schSeq ?? "",
+    seq: schSeq ?? "",
+    title: title ?? "제목 미정",
+    eventNm: title ?? "제목 미정",
+    eventName: title ?? "제목 미정",
+    startDate,
+    endDate,
+    eventPeriod: periodText,
+    date: periodText,
+    venue: codeTitleB || undefined,
+    place: codeTitleB || undefined,
+    category: codeTitleA || "서울시 체육시설 공연행사",
+    sport: codeTitleA || undefined,
+    summary,
+    contents: summary,
+    useTime,
+    useAge,
+    useTarget,
+    usePay,
+    regDate,
+    updDate,
+    link: linkUrl || undefined,
+    url: linkUrl || undefined,
+  };
+}
+
+// 실제 OpenAPI 호출 (XML → JSON 변환)
+async function fetchStadiumSchedule(start = 1, end = 300) {
+  if (!SEOUL_API_KEY) {
+    throw new Error("SEOUL_SPORT_EVENT_API_KEY 환경변수가 없습니다.");
+  }
+
+  const url = `http://openapi.seoul.go.kr:8088/${SEOUL_API_KEY}/xml/${SERVICE_NAME}/${start}/${end}/`;
+  console.log("[stadiumScheduleInfo] 요청:", url);
+
+  const { data: xml } = await axios.get(url, { responseType: "text" });
+
+  const parsed = await parseStringPromise(xml, {
+    explicitArray: true,
+    trim: true,
+  });
+
+  const root = parsed?.[SERVICE_NAME];
+  if (!root) return [];
+
+  const rows = root.row ?? [];
+  const arr = Array.isArray(rows) ? rows : [rows];
+
+  return arr.map(mapRowToRawEvent);
+}
+
+// GET /api/events
 router.get("/", async (req, res) => {
   try {
-    const list = await fetchSeoulLocalPrograms(30);
+    const page = Number(req.query.page ?? 1) || 1;
+    const size = Number(req.query.size ?? 20) || 20;
+    const forceRefresh = String(req.query.forceRefresh ?? "false") === "true";
 
-    res.json({
+    const now = Date.now();
+
+    // 캐시 사용
+    if (
+      !forceRefresh &&
+      cachedEvents.length > 0 &&
+      now - lastFetchedAt < CACHE_TTL_MS
+    ) {
+      const startIdx = (page - 1) * size;
+      const endIdx = startIdx + size;
+      return res.json({
+        source: "cache",
+        lastFetchedAt,
+        total: cachedEvents.length,
+        data: cachedEvents.slice(startIdx, endIdx),
+      });
+    }
+
+    // 새로 호출
+    const allEvents = await fetchStadiumSchedule(1, 500);
+    cachedEvents = allEvents;
+    lastFetchedAt = now;
+
+    const startIdx = (page - 1) * size;
+    const endIdx = startIdx + size;
+
+    return res.json({
       source: "live",
-      count: list.length,
-      data: list,
+      lastFetchedAt,
+      total: allEvents.length,
+      data: allEvents.slice(startIdx, endIdx),
     });
   } catch (err) {
-    console.error("크롤링 오류:", err);
-    res.status(500).json({
-      error: "crawl_failed",
-      message:
-        err instanceof Error ? err.message : "생활체육 프로그램 크롤링 실패",
+    console.error("[GET /api/events] error:", err);
+    return res.status(500).json({
+      error: "failed_to_fetch_events",
+      message: err instanceof Error ? err.message : "unknown_error",
     });
   }
 });
